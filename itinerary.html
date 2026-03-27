@@ -1,1 +1,167 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>TripWise — Your Itinerary</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<header class="site-header">
+  <div class="logo">Trip<span>Wise</span></div>
+  <nav class="header-nav">
+    <a href="plans.html">← back</a>
+    <a href="index.html" onclick="TW.clear()">sign out</a>
+  </nav>
+</header>
+
+<div class="page-wrap">
+
+  <div class="progress-bar mb-2">
+    <div class="progress-step done">1. setup</div>
+    <div class="progress-step done">2. plans</div>
+    <div class="progress-step active">3. itinerary</div>
+    <div class="progress-step">4. logistics</div>
+    <div class="progress-step">5. budget</div>
+  </div>
+
+  <div class="fade-up flex-between" style="margin-bottom:0.3rem">
+    <h1 class="display" style="font-size:1.8rem" id="page-title">your itinerary</h1>
+    <div id="plan-badge" class="badge"></div>
+  </div>
+  <p class="mb-2 fade-up-2" id="page-sub"></p>
+
+  <!-- kid mode toggle (shown if with kids) -->
+  <div id="kidmode-row" style="display:none" class="card fade-up-2" style="margin-bottom:1rem">
+    <div class="flex-between">
+      <div>
+        <div class="fw-500 text-sm">kid mode</div>
+        <div class="text-xs text-dim mt-1">toggle for stroller-friendly, kid-safe activities only</div>
+      </div>
+      <div class="toggle-switch on" id="kid-switch" onclick="this.classList.toggle('on')"></div>
+    </div>
+  </div>
+
+  <!-- day tabs -->
+  <div class="day-tabs fade-up-3" id="day-tabs"></div>
+
+  <!-- day stats -->
+  <div class="stat-row fade-up-3" id="day-stats"></div>
+
+  <!-- reality check / warn -->
+  <div id="day-reality" style="margin-bottom:1rem"></div>
+
+  <!-- activities -->
+  <div class="card fade-up-4" id="activities-container" style="padding:0 1.25rem"></div>
+
+  <button class="btn btn-primary btn-full btn-lg" style="margin-top:1.5rem" onclick="TW.go('logistics.html')">
+    see flights, hotels & transport →
+  </button>
+
+</div>
+
+<script src="app.js"></script>
+<script>
+  TW.requireAuth();
+  const setup = TW.load('setup', {});
+  const plan  = TW.load('plan', { type: 'smart', price: 1850 });
+  const days  = parseInt(setup.days) || 5;
+  const dest  = setup.dest || 'your destination';
+  const prefs = setup.prefs || [];
+  const pace  = setup.pace  || 'balanced';
+  const who   = setup.who   || 'solo';
+
+  document.getElementById('page-title').textContent = dest + ' — itinerary';
+  document.getElementById('page-sub').textContent   = prefs.slice(0,3).join(' · ') + ' · ' + pace + ' pace · ' + days + ' days';
+
+  const planBadge = { budget: 'budget traveler', smart: 'smart explorer', luxury: 'luxury comfort' };
+  const planBadgeEl = document.getElementById('plan-badge');
+  planBadgeEl.textContent = planBadge[plan.type] || '';
+  planBadgeEl.className = 'badge ' + (plan.type === 'budget' ? 'badge-walk' : plan.type === 'luxury' ? 'badge-cab' : 'badge-metro');
+
+  if (who === 'with kids') document.getElementById('kidmode-row').style.display = 'block';
+
+  // build day tabs
+  const tabsEl = document.getElementById('day-tabs');
+  const numDays = Math.min(days, 5); // show up to 5 days
+  for (let i = 1; i <= numDays; i++) {
+    const btn = document.createElement('button');
+    btn.className = 'day-tab' + (i === 1 ? ' active' : '');
+    btn.dataset.day = i;
+    btn.textContent = 'day ' + i;
+    btn.onclick = () => {
+      tabsEl.querySelectorAll('.day-tab').forEach(t => t.classList.remove('active'));
+      btn.classList.add('active');
+      renderDay(i);
+    };
+    tabsEl.appendChild(btn);
+  }
+
+  // full itinerary data
+  const itinerary = TW.mockItinerary(prefs, pace, setup.constraints || {});
+
+  // pad to requested days
+  const dayTitles = [
+    'temples & old tokyo',
+    'shibuya & harajuku',
+    'history & markets',
+    'nature & parks',
+    'hidden gems & departure',
+  ];
+
+  function renderDay(n) {
+    const data = itinerary[n - 1] || itinerary[Math.min(n-1, itinerary.length-1)];
+
+    // stats
+    const statsEl = document.getElementById('day-stats');
+    statsEl.innerHTML = `
+      <div class="stat-box"><div class="stat-num">${data.stats.activities}</div><div class="stat-lbl">activities</div></div>
+      <div class="stat-box"><div class="stat-num" style="color:${data.stats.walkPct>=60?'var(--green)':'var(--accent)'}">${data.stats.walkPct}%</div><div class="stat-lbl">free (walking)</div></div>
+      <div class="stat-box"><div class="stat-num">$${data.stats.transportCost}</div><div class="stat-lbl">transport cost</div></div>
+    `;
+
+    // reality / warn
+    const realityEl = document.getElementById('day-reality');
+    let realityHtml = '';
+    if (data.warn) {
+      realityHtml += `<div class="reality bad"><div class="label">budget warning</div>${data.warn}</div>`;
+    }
+    if (data.reality) {
+      realityHtml += `<div class="reality"><div class="label">reality check</div>${data.reality}</div>`;
+    }
+    realityEl.innerHTML = realityHtml;
+
+    // activities
+    const container = document.getElementById('activities-container');
+    container.innerHTML = data.activities.map(a => {
+      const transportBadges = a.transport.map(t => {
+        const cls = { walk: 'badge-walk', metro: 'badge-metro', cab: 'badge-cab', free: 'badge-free', bus: 'badge-metro' }[t.type] || 'badge-walk';
+        return `<span class="badge ${cls}">${t.label}</span>`;
+      }).join('');
+
+      let activityReality = '';
+      if (a.reality) {
+        const rCls = a.reality.type === 'warn' ? 'bad' : '';
+        activityReality = `<div class="reality ${rCls}" style="margin-top:0.5rem"><div class="label">${a.reality.type === 'warn' ? 'heads up' : 'reality check'}</div>${a.reality.text}</div>`;
+      }
+
+      return `
+        <div class="activity-row">
+          <div class="activity-time">${a.time}</div>
+          <div class="activity-body">
+            <div class="activity-title">${a.title}</div>
+            <div class="activity-meta">${a.meta}</div>
+            <div class="badge-row">${transportBadges}</div>
+            ${activityReality}
+          </div>
+        </div>
+      `;
+    }).join('');
+  }
+
+  renderDay(1);
+</script>
+</body>
+</html>
 
